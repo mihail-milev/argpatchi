@@ -13,7 +13,9 @@ import (
 
 const (
 	JSON_PATCH = `[
-  { "op": "remove", "path": "/metadata/creationTimestamp" },
+  { "op": "remove", "path": "/metadata/creationTimestamp" }
+]`
+    JSON_PATCH_MANAGED_FIELDS_ADDITION = `[
   { "op": "remove", "path": "/metadata/managedFields" }
 ]`
     JSON_PATCH_SELF_LINK_ADDITION = `[
@@ -49,12 +51,21 @@ func (dcf *defaultCheckFilter) Finalize(patched_data string, cloning bool, targe
 	if err != nil {
 		return "", helpers.GenError("Unable to apply JSON patch: %s", err)
 	}
-	
+	// try to remove managed fields
+	managed_fields_patcher, err := jsonpatch.DecodePatch([]byte(JSON_PATCH_MANAGED_FIELDS_ADDITION))
+    if err != nil {
+		return "", helpers.GenError("Unable to generate JSON managedFields patch: %s", err)
+	}
+	json_patched_data_new, err := managed_fields_patcher.Apply(json_patched_data)
+    if err == nil {
+        json_patched_data = json_patched_data_new
+    }
+	// try to remove self link
 	self_link_patcher, err := jsonpatch.DecodePatch([]byte(JSON_PATCH_SELF_LINK_ADDITION))
 	if err != nil {
 		return "", helpers.GenError("Unable to generate JSON selfLink patch: %s", err)
 	}
-	json_patched_data_new, err := self_link_patcher.Apply(json_patched_data)
+	json_patched_data_new, err = self_link_patcher.Apply(json_patched_data)
     if err == nil {
         json_patched_data = json_patched_data_new
     }
