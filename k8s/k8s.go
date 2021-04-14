@@ -76,9 +76,9 @@ func (kc *k8sConnector) GetSourceObject(source_obj SourceObjectRequest) (string,
 	}
 	namespace_str := ""
 	if source_obj.Namespace != "" {
-		namespace_str = fmt.Sprintf("namespaces/%s", source_obj.Namespace)
+		namespace_str = fmt.Sprintf("/namespaces/%s", source_obj.Namespace)
 	}
-	obj_url := fmt.Sprintf("%s/api/%s/%s/%s/%s", kc.url, source_obj.ApiVersion, namespace_str, plural_name, source_obj.Name)
+	obj_url := fmt.Sprintf("%s/api/%s%s/%s/%s", kc.url, source_obj.ApiVersion, namespace_str, plural_name, source_obj.Name)
 	obj_result, err := kc.performGetRequest(obj_url)
 	if err != nil {
 		return "", helpers.GenError("%s: %s", obj_url, err)
