@@ -7,10 +7,12 @@ import (
 	"argpatchi/parser"
 	"argpatchi/patcher"
 
+	"flag"
 	"fmt"
 	"os"
 	"path"
 	"regexp"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -55,6 +57,12 @@ func generateErrorPath(array_index int, api_version, kind, namespace, name strin
 }
 
 func main() {
+	debug_mode := flag.Bool("d", false, "Set this flag to activate debug messages (useful for testing patches)")
+	flag.Parse()
+	if *debug_mode {
+		log.SetLevel(log.DebugLevel)
+	}
+
 	argpatchi_yaml_file_path, err := getArgpatchiYamlFilePath()
 	if err != nil {
 		log.Fatal(err)
@@ -64,16 +72,35 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	k8s_connector, err := k8s.NewK8sConnector(k8s.K8S_CONNECTOR)
-    if err != nil {
-        log.Fatal(err)
-    }
 	for i, single_patch := range config.Patches {
 		err_path := generateErrorPath(i, single_patch.Source.ApiVersion, single_patch.Source.Kind, single_patch.Source.Namespace, single_patch.Source.Name)
+
+		k8s_connector, err := k8s.NewK8sConnector(k8s.K8S_CONNECTOR, single_patch.Cluster)
+		if err != nil {
+			log.Fatal(err_path, err)
+		}
+
 		source_obj, err := k8s_connector.GetSourceObject(single_patch.Source)
 		if err != nil {
 			log.Fatal(err_path, err)
 		}
+
+		if *debug_mode {
+			source_obj_lines := strings.Split(source_obj, "\n")
+			log.Debugln(err_path, "Source object contents:")
+			for _, line := range source_obj_lines {
+				log.Debugf("|%s\n", line)
+			}
+			log.Debugln()
+			log.Debugln()
+			patch_search_contents := strings.Split(single_patch.Patch.SearchFor, "\n")
+			log.Debugln(err_path, "Patch 'Search For' contents:")
+			for _, line := range patch_search_contents {
+				log.Debugf("|%s\n", line)
+			}
+			log.Debugln()
+		}
+
 		patcher_instance := patcher.NewPatcher(patcher.REGEXP_PATCHER_TYPE)
 		patch_result, err := patcher_instance.ExecutePatch(single_patch.Patch, source_obj)
 		if err != nil {

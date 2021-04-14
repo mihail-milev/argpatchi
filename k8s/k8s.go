@@ -2,36 +2,56 @@ package k8s
 
 import (
 	"argpatchi/helpers"
-	
+
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"encoding/json"
 	"net/http"
 	"os"
 	"path"
 	"strings"
 	"sync"
-	
+
 	log "github.com/sirupsen/logrus"
 	yaml "gopkg.in/yaml.v3"
 )
 
 const (
-	PATH_TO_SA_TOKEN = "/var/run/secrets/kubernetes.io/serviceaccount"
-	K8S_URL = "https://kubernetes.default.svc"
+	LOCAL_CLUSTER_PATH_TO_SA_TOKEN    = "/var/run/secrets/kubernetes.io/serviceaccount"
+	K8S_URL                           = "https://kubernetes.default.svc"
+	ENV_VAR_CLUSTERS_TOKENS_PATH_NAME = "FOLDER_WITH_CLUSTER_TOKENS"
 )
 
 type k8sConnector struct {
-	url string
-	cp *x509.CertPool
-	token string
+	url           string
+	cp            *x509.CertPool
+	token         string
 	api_resources map[string]string
 }
 
+func (kc *k8sConnector) getClusterTokenPath() string {
+	path_with_tokens := os.Getenv(ENV_VAR_CLUSTERS_TOKENS_PATH_NAME)
+	if path_with_tokens == "" {
+		log.Fatalf("Please, set the environment variable %s with the path to a folder of clusters' tokens", ENV_VAR_CLUSTERS_TOKENS_PATH_NAME)
+	}
+	fh, err := os.OpenFile(path_with_tokens, os.O_RDONLY, 0400)
+	if err != nil {
+		log.Fatalf("The environment variable %s doesn't point to a valid folder, or folder cannot be read (%s): %s", ENV_VAR_CLUSTERS_TOKENS_PATH_NAME, path_with_tokens, err)
+	}
+	defer fh.Close()
+	return path.Join(path_with_tokens, strings.ReplaceAll(kc.url, "/", "_"))
+}
+
 func (kc *k8sConnector) EstablishConnection() (*k8sConnector, error) {
-	token_path := path.Join(PATH_TO_SA_TOKEN, "token")
+	token_path := func() string {
+		if kc.url == "" {
+			return path.Join(LOCAL_CLUSTER_PATH_TO_SA_TOKEN, "token")
+		} else {
+			return path.Join(kc.getClusterTokenPath(), "token")
+		}
+	}()
 	token_fh, err := os.OpenFile(token_path, os.O_RDONLY, 0400)
 	if err != nil {
 		return nil, helpers.GenError("Unable to open token file for read: %s", err)
@@ -42,8 +62,14 @@ func (kc *k8sConnector) EstablishConnection() (*k8sConnector, error) {
 		return nil, helpers.GenError("Unable to read token file: %s", err)
 	}
 	kc.token = strings.TrimSpace(string(data))
-	
-	ca_path := path.Join(PATH_TO_SA_TOKEN, "ca.crt")
+
+	ca_path := func() string {
+		if kc.url == "" {
+			return path.Join(LOCAL_CLUSTER_PATH_TO_SA_TOKEN, "ca.crt")
+		} else {
+			return path.Join(kc.getClusterTokenPath(), "ca.crt")
+		}
+	}()
 	ca_fh, err := os.OpenFile(ca_path, os.O_RDONLY, 0400)
 	if err != nil {
 		return nil, helpers.GenError("Unable to open ca.crt file for read: %s", err)
@@ -57,14 +83,16 @@ func (kc *k8sConnector) EstablishConnection() (*k8sConnector, error) {
 	if !kc.cp.AppendCertsFromPEM(data) {
 		return nil, helpers.GenError("Unable to add ca.crt to certificate pool")
 	}
-	
-	kc.url = K8S_URL
-	
+
+	if kc.url == "" {
+		kc.url = K8S_URL
+	}
+
 	err = kc.getApiResources()
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return kc, nil
 }
 
@@ -79,9 +107,9 @@ func (kc *k8sConnector) GetSourceObject(source_obj SourceObjectRequest) (string,
 		namespace_str = fmt.Sprintf("/namespaces/%s", source_obj.Namespace)
 	}
 	api_str := "api"
-    if strings.Contains(source_obj.ApiVersion, "/") {
-        api_str = "apis"
-    }
+	if strings.Contains(source_obj.ApiVersion, "/") {
+		api_str = "apis"
+	}
 	obj_url := fmt.Sprintf("%s/%s/%s%s/%s/%s", kc.url, api_str, source_obj.ApiVersion, namespace_str, plural_name, source_obj.Name)
 	obj_result, err := kc.performGetRequest(obj_url)
 	if err != nil {
@@ -100,7 +128,7 @@ func (kc *k8sConnector) GetSourceObject(source_obj SourceObjectRequest) (string,
 	if err != nil {
 		return "", helpers.GenError("Unable to parse object as YAML: %s", err)
 	}
-	
+
 	return yaml_res.String(), nil
 }
 
@@ -118,7 +146,7 @@ func (kc *k8sConnector) getApiResources() error {
 	var combined_result []string
 	var combined_result_lock sync.Mutex
 	var wg sync.WaitGroup
-	parallel_func := func (api_group_url string) {
+	parallel_func := func(api_group_url string) {
 		api_group_result, err := kc.performGetRequest(api_group_url)
 		if err != nil {
 			log.Fatal(helpers.GenError("%s: %s", api_group_url, err))
@@ -161,7 +189,7 @@ func (kc *k8sConnector) getApiResources() error {
 }
 
 func (kc *k8sConnector) performGetRequest(url string) (string, error) {
-	tls_config := &tls.Config {
+	tls_config := &tls.Config{
 		RootCAs: kc.cp,
 	}
 	http_transport := &http.Transport{

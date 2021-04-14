@@ -12,11 +12,12 @@ type Config struct {
 	ApiVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
 	Patches    []struct {
-		Source k8s.SourceObjectRequest `yaml:"sourceObj"`
-		Patch  PatchDefinition         `yaml:"patch"`
-		Type   string                  `yaml:"type"`
-		Clone  bool                    `yaml:"clone"`
-		Target k8s.TargetObject        `yaml:"targetObj,omitempty"`
+		Source  k8s.SourceObjectRequest `yaml:"sourceObj"`
+		Patch   PatchDefinition         `yaml:"patch"`
+		Type    string                  `yaml:"type"`
+		Clone   bool                    `yaml:"clone"`
+		Cluster string                  `yaml:"cluster,omitempty"`
+		Target  k8s.TargetObject        `yaml:"targetObj,omitempty"`
 	} `yaml:"patches"`
 }
 
